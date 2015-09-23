@@ -1,0 +1,113 @@
+---
+title: "PML Course Project 1"
+output:
+  html_document:
+    pandoc_args: [
+      "+RTS", "-K64m",
+      "-RTS"
+    ]
+---
+
+### Practical Machine Learning Course Project
+
+## Overview
+
+In this project, I construct and fit a model for the HAR dataset that predicts the manner in which participants in a Human Activity Recognition (HAR) study perform various weightlifting exercises from the available data. 
+
+I first conduct exploratory data analysis to isolate variables for inclusion into the model. Then, I split the training set into training and validation subsets, and perform cross-validation on the training subset to minimise out-of-sample errors. I then test the model against the validation dataset, then finally against the test dataset (with 20 variables) that has been divided. 
+
+## Loading in Data
+
+```{r}
+
+library(caret)
+rawtrain <- read.csv("pml-training.csv", na.strings = c("NA", "#DIV/0!"))
+testing <- read.csv("pml-testing.csv", na.strings = c("NA", "#DIV/0!"))
+
+```
+
+## Exploratory Data Analysis and Processing
+
+Before we begin constructing the data, we perform some rudimentary exploratory data analysis and data processing in order to select the relevant predictors on which to build our base model. We first have a look at the dataset:
+
+```{r, echo = TRUE}
+
+head(rawtrain[,c(1:10, 15:20)])
+
+```
+
+From a cursory look at a truncated version of the dataset, we can see that there are a number of summary variables and classification variables which will not be relevant to our analysis. There are also a large number of variables without much meaningful data (i.e. the variables with large numbers of NA variables). 
+
+Using the existince of an NA value in the first row of the dataset as a classifying heuristic, we eliminate these summary variables, as well as variables that have insufficient entries for meaningful analysis:
+
+```{r, echo = TRUE}
+
+ss <- rawtrain[, -c(1:7)]
+subset <- ss[which(!is.na(ss[1,]))]
+col <- colnames(subset)
+
+```
+
+We are now ready to construct a model for this data.
+
+## Constructing the Model
+
+As the testing sample given does not have classe variables, we must first split our current dataset further into training and validation subsets in order to obtain the out-of-sample error estimates later:
+
+```{r, echo = TRUE}
+
+inTrain <- createDataPartition(y=subset$classe, p = 0.7, list = FALSE)
+subtraining <- subset[inTrain,]
+subvalidation <- subset[-inTrain,]
+
+```
+
+With the data separated, we then train the model as follows, using the Random Forest method. Other algorithms common for modeling on categorical variables as outcomes were attempted, such as rpart, with poor accuracy. As such, we stuck to the RF method, which promised greatest accuracy, but at cost to speed and interpretability. We also set parameters for cross-validation of the training data:
+
+```{r, echo = TRUE, cache = TRUE}
+
+tc <- trainControl(method = "cv", number = 6)
+modelFit <- train(classe~., trControl = tc, data = subtraining, method = "rf")
+modelFit
+
+```
+
+From the summary of the fitted model above, we see that the optimal model is the one that uses 27 predictors, or mtry = 27. All other models attempted did not perform better than random selection in terms of predictive power. 5-fold cross validation was also used explicitly to minimise overfitting on the test dataset. 
+
+## Fitting Model to Validation Data and Out-of-Sample Error
+
+We then proceed to fit the model derived above to the validation data in order to test the predictive power of our mode, as well as to get some sort of estimate of the out-of-sample error:
+
+```{r, echo = TRUE}
+
+prediction <- predict(modelFit, subvalidation)
+confusionMatrix(prediction, subvalidation$classe)
+
+```
+
+As can be seen, the accuracy, at 0.9975 on the validation set, is well within any reasonable standard of fit.
+
+Finally, we derive the out-of-sample error of our validation sets,  which was created through our cross-validation process. As the outcome is categorical, we can use missclassification error rates as our measure for out-of-sample error.
+
+```{r, echo = TRUE}
+
+error.oosample <- sum(prediction != subvalidation$classe)/length(subvalidation$classe)
+error.oosample
+
+```
+
+As such, the out-of-sample error is 0.0078 or about 0.78%.
+
+## Submission Script
+
+```{r, echo = TRUE}
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+```
